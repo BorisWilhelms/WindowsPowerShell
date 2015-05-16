@@ -22,4 +22,7 @@
     $folders | choose | Set-Location
 }
 
-Set-Alias sw Set-LocationEx
+if(!(Test-Path Alias:\sw)) 
+{
+    Set-Alias sw Set-LocationEx
+}

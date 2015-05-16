@@ -19,4 +19,7 @@
     }
 }
 
-Set-Alias touch Touch-File
+if(!(Test-Path Alias:\touch))
+{
+    Set-Alias touch Touch-File
+}
