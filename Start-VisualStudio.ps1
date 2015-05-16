@@ -1,6 +1,6 @@
 function Start-VisualStudio() 
 { 
-    $solutions = Get-ChildItem *.sln | Select-Object -Property Name, Fullname
+    $solutions = Get-ChildItem *.sln
 
     if(!$solutions) 
     {
