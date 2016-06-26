@@ -1,6 +1,6 @@
-﻿function Get-FileList
+﻿function Get-FileList($folder)
 {
-    ls -Recurse | ForEach-Object {
+    ls -Recurse $folder | ForEach-Object {
         $file = $_
         $hash = Get-FileHash -Algorithm MD5 $file.FullName
 
