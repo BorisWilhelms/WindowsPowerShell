@@ -38,6 +38,14 @@ else {
 $poshGitPromptScriptBlock = $null
 
 $currentPromptDef = if ($funcInfo = Get-Command prompt -ErrorAction SilentlyContinue) { $funcInfo.Definition }
+
+# If prompt matches pre-0.7 posh-git prompt, ignore it
+$collapsedLegacyPrompt = '$realLASTEXITCODE = $LASTEXITCODE;Write-Host($pwd.ProviderPath) -nonewline;Write-VcsStatus;$global:LASTEXITCODE = $realLASTEXITCODE;return "> "'
+if ($currentPromptDef -and (($currentPromptDef.Trim() -replace '[\r\n\t]+\s*',';') -eq $collapsedLegacyPrompt)) {
+    Write-Warning 'Replacing old posh-git prompt. Did you copy profile.example.ps1 into $PROFILE?'
+    $currentPromptDef = $null
+}
+
 if (!$currentPromptDef) {
     # HACK: If prompt is missing, create a global one we can overwrite with Set-Item
     function global:prompt { ' ' }
@@ -77,11 +85,11 @@ if ($ForcePoshGitPrompt -or !$currentPromptDef -or ($currentPromptDef -eq $defau
         $defaultPromptPrefix = [string]$GitPromptSettings.DefaultPromptPrefix
         if ($defaultPromptPrefix) {
             $expandedDefaultPromptPrefix = $ExecutionContext.SessionState.InvokeCommand.ExpandString($defaultPromptPrefix)
-            Write-Host $expandedDefaultPromptPrefix -NoNewline
+            Write-Prompt $expandedDefaultPromptPrefix
         }
 
         # Write the abbreviated current path
-        Write-Host $currentPath -NoNewline
+        Write-Prompt $currentPath
 
         # Write the Git status summary information
         Write-VcsStatus
@@ -102,7 +110,7 @@ if ($ForcePoshGitPrompt -or !$currentPromptDef -or ($currentPromptDef -eq $defau
         if ($GitPromptSettings.DefaultPromptEnableTiming) {
             $sw.Stop()
             $elapsed = $sw.ElapsedMilliseconds
-            Write-Host " ${elapsed}ms" -NoNewline
+            Write-Prompt " ${elapsed}ms"
         }
 
         $global:LASTEXITCODE = $origLastExitCode

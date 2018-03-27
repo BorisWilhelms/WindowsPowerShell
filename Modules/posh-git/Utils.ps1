@@ -69,6 +69,8 @@ function Invoke-Utf8ConsoleCommand([ScriptBlock]$cmd) {
 .PARAMETER Force
     Do not check if the specified profile script is already importing
     posh-git. Just add Import-Module posh-git command.
+.PARAMETER StartSshAgent
+    Also add `Start-SshAgent -Quiet` to the specified profile script.
 .EXAMPLE
     PS C:\> Add-PoshGitToProfile
     Updates your profile script for the current PowerShell host to import the
@@ -82,18 +84,36 @@ function Invoke-Utf8ConsoleCommand([ScriptBlock]$cmd) {
 .OUTPUTS
     None.
 #>
-function Add-PoshGitToProfile([switch]$AllHosts, [switch]$Force, [switch]$WhatIf) {
+function Add-PoshGitToProfile {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter()]
+        [switch]
+        $AllHosts,
+
+        [Parameter()]
+        [switch]
+        $Force,
+
+        [Parameter()]
+        [switch]
+        $StartSshAgent,
+
+        [Parameter(ValueFromRemainingArguments)]
+        [psobject[]]
+        $TestParams
+    )
+
     $underTest = $false
 
     $profilePath = if ($AllHosts) { $PROFILE.CurrentUserAllHosts } else { $PROFILE.CurrentUserCurrentHost }
 
     # Under test, we override some variables using $args as a backdoor.
-    # TODO: Can we just turn these into optional parameters with well-defined behavior?
-    if (($args.Count -gt 0) -and ($args[0] -is [string])) {
-        $profilePath = [string]$args[0]
+    if (($TestParams.Count -gt 0) -and ($TestParams[0] -is [string])) {
+        $profilePath = [string]$TestParams[0]
         $underTest = $true
-        if ($args.Count -gt 1) {
-            $ModuleBasePath = [string]$args[1]
+        if ($TestParams.Count -gt 1) {
+            $ModuleBasePath = [string]$TestParams[1]
         }
     }
 
@@ -128,7 +148,7 @@ function Add-PoshGitToProfile([switch]$AllHosts, [switch]$Force, [switch]$WhatIf
     }
 
     if (!$profilePath) {
-        Write-Warning "Skipping add of posh-git import; no profile found."
+        Write-Warning "Skipping add of posh-git import to profile; no profile found."
         Write-Verbose "`$profilePath          = '$profilePath'"
         Write-Verbose "`$PROFILE              = '$PROFILE'"
         Write-Verbose "CurrentUserCurrentHost = '$($PROFILE.CurrentUserCurrentHost)'"
@@ -136,6 +156,16 @@ function Add-PoshGitToProfile([switch]$AllHosts, [switch]$Force, [switch]$WhatIf
         Write-Verbose "AllUsersCurrentHost    = '$($PROFILE.AllUsersCurrentHost)'"
         Write-Verbose "AllUsersAllHosts       = '$($PROFILE.AllUsersAllHosts)'"
         return
+    }
+
+    # If the profile script exists and is signed, then we should not modify it
+    if (Test-Path -LiteralPath $profilePath) {
+        $sig = Get-AuthenticodeSignature $profilePath
+        if ($null -ne $sig.SignerCertificate) {
+            Write-Warning "Skipping add of posh-git import to profile; '$profilePath' appears to be signed."
+            Write-Warning "Add the command 'Import-Module posh-git' to your profile and resign it."
+            return
+        }
     }
 
     # Check if the location of this module file is in the PSModulePath
@@ -146,7 +176,20 @@ function Add-PoshGitToProfile([switch]$AllHosts, [switch]$Force, [switch]$WhatIf
         $profileContent = "`nImport-Module '$ModuleBasePath\posh-git.psd1'"
     }
 
-    Add-Content -LiteralPath $profilePath -Value $profileContent -Encoding UTF8 -WhatIf:$WhatIf
+    # Make sure the PowerShell profile directory exists
+    $profileDir = Split-Path $profilePath -Parent
+    if (!(Test-Path -LiteralPath $profileDir)) {
+        if ($PSCmdlet.ShouldProcess($profileDir, "Create current user PowerShell profile directory")) {
+            New-Item $profileDir -ItemType Directory -Force -Verbose:$VerbosePreference > $null
+        }
+    }
+
+    if ($PSCmdlet.ShouldProcess($profilePath, "Add 'Import-Module posh-git' to profile")) {
+        Add-Content -LiteralPath $profilePath -Value $profileContent -Encoding UTF8
+    }
+    if ($StartSshAgent -and $PSCmdlet.ShouldProcess($profilePath, "Add 'Start-SshAgent -Quiet' to profile")) {
+        Add-Content -LiteralPath $profilePath -Value 'Start-SshAgent -Quiet' -Encoding UTF8
+    }
 }
 
 <#
