@@ -10,6 +10,10 @@ function Switch-To-Boris-Project {
     cd C:\Projects\BorisWilhelms
 }
 
+function Switch-To-Home {
+    cd ~
+}
+
 function Switch-To-Scripts {
     cd 'C:\Projects\BorisWilhelms\C# Scripts\'
 }
@@ -25,3 +29,4 @@ Set-Alias bw Switch-To-Boris-Project
 Set-Alias scripts Switch-To-Scripts
 Set-Alias ".." "cd.."
 Set-Alias "..." GoUpper
+Set-Alias "~" Switch-to-Home
