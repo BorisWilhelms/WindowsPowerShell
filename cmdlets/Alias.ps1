@@ -13,8 +13,15 @@ function Switch-To-Boris-Project {
 function Switch-To-Scripts {
     cd 'C:\Projects\BorisWilhelms\C# Scripts\'
 }
+function Go-Upper {
+    cd..
+    cd..
+
+}
 
 Set-Alias cust Switch-To-Customer
 Set-Alias proj Switch-To-Project
 Set-Alias bw Switch-To-Boris-Project
 Set-Alias scripts Switch-To-Scripts
+Set-Alias ".." "cd.."
+Set-Alias "..." GoUpper

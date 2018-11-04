@@ -54,6 +54,18 @@ function Invoke-Utf8ConsoleCommand([ScriptBlock]$cmd) {
     }
 }
 
+function Test-Administrator {
+    # PowerShell 5.x only runs on Windows so use .NET types to determine isAdminProcess
+    # Or if we are on v6 or higher, check the $IsWindows pre-defined variable.
+    if (($PSVersionTable.PSVersion.Major -le 5) -or $IsWindows) {
+        $currentUser = [Security.Principal.WindowsPrincipal]([Security.Principal.WindowsIdentity]::GetCurrent())
+        return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+
+    # Must be Linux or OSX, so use the id util. Root has userid of 0.
+    return 0 -eq (id -u)
+}
+
 <#
 .SYNOPSIS
     Configures your PowerShell profile (startup) script to import the posh-git
@@ -65,7 +77,12 @@ function Invoke-Utf8ConsoleCommand([ScriptBlock]$cmd) {
 .PARAMETER AllHosts
     By default, this command modifies the CurrentUserCurrentHost profile
     script.  By specifying the AllHosts switch, the command updates the
-    CurrentUserAllHosts profile.
+    CurrentUserAllHosts profile (or AllUsersAllHosts, given -AllUsers).
+.PARAMETER AllUsers
+    By default, this command modifies the CurrentUserCurrentHost profile
+    script.  By specifying the AllUsers switch, the command updates the
+    AllUsersCurrentHost profile (or AllUsersAllHosts, given -AllHosts).
+    Requires elevated permissions.
 .PARAMETER Force
     Do not check if the specified profile script is already importing
     posh-git. Just add Import-Module posh-git command.
@@ -76,7 +93,7 @@ function Invoke-Utf8ConsoleCommand([ScriptBlock]$cmd) {
     Updates your profile script for the current PowerShell host to import the
     posh-git module when the current PowerShell host starts.
 .EXAMPLE
-    PS C:\> Add-PoshGitToProfile -AllHost
+    PS C:\> Add-PoshGitToProfile -AllHosts
     Updates your profile script for all PowerShell hosts to import the posh-git
     module whenever any PowerShell host starts.
 .INPUTS
@@ -93,6 +110,10 @@ function Add-PoshGitToProfile {
 
         [Parameter()]
         [switch]
+        $AllUsers,
+
+        [Parameter()]
+        [switch]
         $Force,
 
         [Parameter()]
@@ -104,9 +125,18 @@ function Add-PoshGitToProfile {
         $TestParams
     )
 
+    if ($AllUsers -and !(Test-Administrator)) {
+        throw 'Adding posh-git to an AllUsers profile requires an elevated host.'
+    }
+
     $underTest = $false
 
-    $profilePath = if ($AllHosts) { $PROFILE.CurrentUserAllHosts } else { $PROFILE.CurrentUserCurrentHost }
+    $profileName = $(if ($AllUsers) { 'AllUsers' } else { 'CurrentUser' }) `
+                 + $(if ($AllHosts) { 'AllHosts' } else { 'CurrentHost' })
+    Write-Verbose "`$profileName = '$profileName'"
+
+    $profilePath = $PROFILE.$profileName
+    Write-Verbose "`$profilePath = '$profilePath'"
 
     # Under test, we override some variables using $args as a backdoor.
     if (($TestParams.Count -gt 0) -and ($TestParams[0] -is [string])) {
@@ -149,7 +179,6 @@ function Add-PoshGitToProfile {
 
     if (!$profilePath) {
         Write-Warning "Skipping add of posh-git import to profile; no profile found."
-        Write-Verbose "`$profilePath          = '$profilePath'"
         Write-Verbose "`$PROFILE              = '$PROFILE'"
         Write-Verbose "CurrentUserCurrentHost = '$($PROFILE.CurrentUserCurrentHost)'"
         Write-Verbose "CurrentUserAllHosts    = '$($PROFILE.CurrentUserAllHosts)'"
@@ -160,11 +189,17 @@ function Add-PoshGitToProfile {
 
     # If the profile script exists and is signed, then we should not modify it
     if (Test-Path -LiteralPath $profilePath) {
-        $sig = Get-AuthenticodeSignature $profilePath
-        if ($null -ne $sig.SignerCertificate) {
-            Write-Warning "Skipping add of posh-git import to profile; '$profilePath' appears to be signed."
-            Write-Warning "Add the command 'Import-Module posh-git' to your profile and resign it."
-            return
+        if (!(Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue))
+        {
+            Write-Verbose "Platform doesn't support script signing, skipping test for signed profile."
+        }
+        else {
+            $sig = Get-AuthenticodeSignature $profilePath
+            if ($null -ne $sig.SignerCertificate) {
+                Write-Warning "Skipping add of posh-git import to profile; '$profilePath' appears to be signed."
+                Write-Warning "Add the command 'Import-Module posh-git' to your profile and resign it."
+                return
+            }
         }
     }
 
@@ -173,7 +208,8 @@ function Add-PoshGitToProfile {
         $profileContent = "`nImport-Module posh-git"
     }
     else {
-        $profileContent = "`nImport-Module '$ModuleBasePath\posh-git.psd1'"
+        $modulePath = Join-Path $ModuleBasePath posh-git.psd1
+        $profileContent = "`nImport-Module '$modulePath'"
     }
 
     # Make sure the PowerShell profile directory exists
@@ -210,7 +246,12 @@ function Add-PoshGitToProfile {
     Adapted from http://www.west-wind.com/Weblog/posts/197245.aspx
 #>
 function Get-FileEncoding($Path) {
-    $bytes = [byte[]](Get-Content $Path -Encoding byte -ReadCount 4 -TotalCount 4)
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        $bytes = [byte[]](Get-Content $Path -AsByteStream -ReadCount 4 -TotalCount 4)
+    }
+    else {
+        $bytes = [byte[]](Get-Content $Path -Encoding byte -ReadCount 4 -TotalCount 4)
+    }
 
     if (!$bytes) { return 'utf8' }
 
@@ -244,6 +285,29 @@ function Get-PathStringComparison {
     else {
         [System.StringComparison]::OrdinalIgnoreCase
     }
+}
+
+function Get-PromptPath {
+    $settings = $global:GitPromptSettings
+    $abbrevHomeDir = $settings -and $settings.DefaultPromptAbbreviateHomeDirectory
+
+    # A UNC path has no drive so it's better to use the ProviderPath e.g. "\\server\share".
+    # However for any path with a drive defined, it's better to use the Path property.
+    # In this case, ProviderPath is "\LocalMachine\My"" whereas Path is "Cert:\LocalMachine\My".
+    # The latter is more desirable.
+    $pathInfo = $ExecutionContext.SessionState.Path.CurrentLocation
+    $currentPath = if ($pathInfo.Drive) { $pathInfo.Path } else { $pathInfo.ProviderPath }
+
+    $stringComparison = Get-PathStringComparison
+
+    # Abbreviate path by replacing beginning of path with ~ *iff* the path is under the user's home dir
+    if ($abbrevHomeDir -and $currentPath -and !$currentPath.Equals($Home, $stringComparison) -and
+        $currentPath.StartsWith($Home, $stringComparison)) {
+
+        $currentPath = "~" + $currentPath.SubString($Home.Length)
+    }
+
+    return $currentPath
 }
 
 function Get-PSModulePath {
