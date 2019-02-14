@@ -20,7 +20,10 @@ function Switch-To-Scripts {
 function Go-Upper {
     cd..
     cd..
+}
 
+function Switch-To-Temp {
+    cd C:\Temp
 }
 
 Set-Alias cust Switch-To-Customer
@@ -30,3 +33,4 @@ Set-Alias scripts Switch-To-Scripts
 Set-Alias ".." "cd.."
 Set-Alias "..." GoUpper
 Set-Alias "~" Switch-to-Home
+Set-Alias temp Switch-To-Temp
