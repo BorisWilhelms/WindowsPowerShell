@@ -1,5 +1,6 @@
 Import-Module posh-git
 Import-Module oh-my-posh
+Import-Module Jump.Location
 Set-Theme paradox
 $DefaultUser = 'wired'
 
